@@ -103,14 +103,27 @@ const STRINGS = {
     "hd.selfReported": "Counts are self-reported and may be out of date.",
     "hd.scoreNote": "Need score = the four point columns added up. Higher means the hospital needs that doctor more. 60+ is high need, 30–59 moderate, under 30 low. If a hospital has zero of a doctor it is required to have, it is always high need.",
 
-    "rg.legend": `<span class="lbl l2">None</span> no doctor of this kind in the kab/kota · <span class="lbl l1">Under half</span> less than half of a typical area · <span class="lbl l0">Below typical</span> fewer than a typical area · numbers are doctors per 100,000 people.`,
+    "rg.legend": (name, lv, unit) => `Colors follow the area check chosen in Settings (<b>${name}</b>): <span class="lbl l2">+20</span> ${lv[0]} · <span class="lbl l1">+12</span> ${lv[1]} · <span class="lbl l0">+6</span> ${lv[2]}. ${unit}`,
+    "rg.levels": {
+      custom: ["no doctor of this kind in the kab/kota", "less than half of a typical area", "fewer than a typical area"],
+      national: ["none in the kab/kota, though a national target needs one", "only non-government hospitals have one", "some public hospitals the target covers have none"],
+      global: ["none in the kab/kota", "less than half the recommended ratio", "below the recommended ratio"],
+      catchment: ["none at any hospital within 50 km", "less than half the national average", "below the national average"] },
+    "rg.unit": "Numbers are doctors per 100,000 people.",
+    "rg.unitCatch": km => `Numbers are doctors per 100,000 people at hospitals within ${km} km, including neighbouring kab/kota.`,
+    "rg.globalNote": "* = surgeons, anesthesiologists and OB-GYNs counted together for the Lancet target. – = no recommended ratio, so not colored.",
     "rg.oneTitle": name => `${name} by kab/kota`,
-    "rg.oneLede": (n, m) => `Doctors per 100,000 people. A typical kab/kota (the middle one of all ${n}) has ${m}. Areas with the fewest come first.`,
+    "rg.oneLede": {
+      custom: (n, b) => `Doctors per 100,000 people. A typical kab/kota (the middle one of all ${n}) has ${b}. Areas with the fewest come first.`,
+      national: () => "Doctors per 100,000 people. Colors show the national priority check: the 7 basic specialists at every RSUD (Kemenkes DREAMS) and the KMK 1277/2024 targets. Areas with the fewest come first.",
+      global: (n, b) => b === "–" ? "Doctors per 100,000 people. No internationally recommended ratio exists for this specialty, so this setting doesn't color it." : `Doctors per 100,000 people. Recommended: at least ${b} per 100,000. Areas with the fewest come first.`,
+      catchment: (n, b, km) => `Doctors per 100,000 people at hospitals within ${km} km. The national average is ${b}. Areas with the fewest come first.` },
     "rg.thKab": "Kab/kota", "rg.thProv": "Province", "rg.thPop": "Population", "rg.thHosp": "Hospitals", "rg.thDoctors": "Doctors",
-    "rg.thPer": "Per 100k people", "rg.thVs": "Compared with typical",
+    "rg.thPer": "Per 100k people", "rg.thPerCatch": km => `Per 100k, within ${km} km`, "rg.thWhy": "Area check",
+    "rg.thVs": { custom: "Compared with typical", national: "Compared with a ratio", global: "Compared with recommended", catchment: "Compared with national average" },
     "rg.title": "Regions",
-    "rg.lede": "Doctors per 100,000 people in each kab/kota. Red means none at all. By default it shows the 19 specialties the score looks at; pick one specialty to rank areas for it, or several to compare just those.",
-    "rg.typical": "Typical kab/kota", "rg.cellTitle": n => `${n} specialists`,
+    "rg.lede": "Doctors per 100,000 people in each kab/kota. By default it shows the 19 specialties the score looks at; pick one specialty to rank areas for it, or several to compare just those.",
+    "rg.typical": { custom: "Typical kab/kota", global: "Recommended", catchment: "National average" }, "rg.cellTitle": n => `${n} specialists`,
 
     "q.title": "Data quality", "q.lede": "What the scores rest on, and what is missing. Fixing items here changes the scores.",
     "q.kmkMatched": "KMK hospitals matched to SIRS", "q.waiting": "Waiting for your review",
@@ -155,6 +168,18 @@ const STRINGS = {
     "st.theme": "Theme", "st.system": "Follow my computer", "st.light": "Light", "st.dark": "Dark",
     "st.lang": "Language", "st.en": "English", "st.id": "Bahasa Indonesia",
     "st.note": "Map colors, the legend and every page switch immediately.",
+    "st.area": 'How "few in this area" is measured',
+    "st.areaLede": "This sets the area part of the score (up to 20 of the 100 points), so it changes totals and need levels on every page. The other three parts stay the same.",
+    "st.areaDefault": "(default)",
+    "st.areaMore": 'Sources for each option are under <a href="#about">How the score works</a>.',
+    "area.name": { custom: "Compared with other areas (original)", national: "National priority targets (Kemenkes)",
+      global: "Global recommended ratios", catchment: "Reachable within 50 km" },
+    "area.desc": {
+      custom: "Compares the kab/kota's doctors per 100,000 people with the middle kab/kota in Indonesia. Simple, but the yardstick is just what is typical today, kab/kota borders are hard edges, and for rare specialties the typical area has none, so only \"none at all\" can score.",
+      national: "Uses Kemenkes's own targets: every RSUD kab/kota should have the 7 basic specialists (counted from the Kemenkes DREAMS vacancy tracker), and KMK 1277/2024 network hospitals need the specialists for their cancer, heart, stroke, kidney and mother-and-child targets. Other specialties get no area points.",
+      global: "Compares with published ratios: at least 5 anesthesiologists per 100,000 people (WFSA) and 20 surgeons, anesthesiologists and OB-GYNs together per 100,000 (Lancet Commission on Global Surgery). Specialties without a published ratio are skipped, not guessed.",
+      catchment: "Counts doctors at every hospital within 50 km, shared among everyone those hospitals serve (the two-step floating catchment method from health-access research), and compares with the national average. An area next to a well-staffed city isn't flagged, and rare specialties are judged fairly. The closest to real access." },
+    "area.current": name => `Area check: ${name}.`, "area.change": "Change in Settings",
   },
 
   id: {
@@ -257,14 +282,27 @@ const STRINGS = {
     "hd.selfReported": "Hitungan dilaporkan sendiri dan mungkin sudah usang.",
     "hd.scoreNote": "Skor kebutuhan = jumlah keempat kolom poin. Makin tinggi berarti rumah sakit makin butuh dokter itu. 60+ kebutuhan tinggi, 30–59 sedang, di bawah 30 rendah. Jika rumah sakit tidak punya sama sekali dokter yang diwajibkan, kebutuhannya selalu tinggi.",
 
-    "rg.legend": `<span class="lbl l2">Tidak ada</span> tidak ada dokter jenis ini di kab/kota · <span class="lbl l1">Kurang dari separuh</span> kurang dari separuh daerah pada umumnya · <span class="lbl l0">Di bawah biasa</span> lebih sedikit dari daerah pada umumnya · angka adalah jumlah dokter per 100.000 penduduk.`,
+    "rg.legend": (name, lv, unit) => `Warna mengikuti pengecekan wilayah yang dipilih di Pengaturan (<b>${name}</b>): <span class="lbl l2">+20</span> ${lv[0]} · <span class="lbl l1">+12</span> ${lv[1]} · <span class="lbl l0">+6</span> ${lv[2]}. ${unit}`,
+    "rg.levels": {
+      custom: ["tidak ada dokter jenis ini di kab/kota", "kurang dari separuh daerah pada umumnya", "lebih sedikit dari daerah pada umumnya"],
+      national: ["tidak ada di kab/kota, padahal target nasional membutuhkannya", "hanya ada di RS non-pemerintah", "sebagian RS pemerintah yang dicakup target tidak punya"],
+      global: ["tidak ada di kab/kota", "kurang dari separuh rasio rekomendasi", "di bawah rasio rekomendasi"],
+      catchment: ["tidak ada di RS mana pun dalam radius 50 km", "kurang dari separuh rata-rata nasional", "di bawah rata-rata nasional"] },
+    "rg.unit": "Angka adalah jumlah dokter per 100.000 penduduk.",
+    "rg.unitCatch": km => `Angka adalah jumlah dokter per 100.000 penduduk di RS dalam radius ${km} km, termasuk kab/kota tetangga.`,
+    "rg.globalNote": "* = dokter bedah, anestesi, dan kandungan dihitung bersama untuk target Lancet. – = tidak ada rasio rekomendasi, jadi tidak diberi warna.",
     "rg.oneTitle": name => `${name} per kab/kota`,
-    "rg.oneLede": (n, m) => `Dokter per 100.000 penduduk. Kab/kota pada umumnya (nilai tengah dari ${n}) punya ${m}. Daerah dengan jumlah paling sedikit ditampilkan lebih dulu.`,
+    "rg.oneLede": {
+      custom: (n, b) => `Dokter per 100.000 penduduk. Kab/kota pada umumnya (nilai tengah dari ${n}) punya ${b}. Daerah dengan jumlah paling sedikit ditampilkan lebih dulu.`,
+      national: () => "Dokter per 100.000 penduduk. Warna menunjukkan pengecekan prioritas nasional: 7 dokter spesialis dasar di setiap RSUD (Kemenkes DREAMS) dan target KMK 1277/2024. Daerah dengan jumlah paling sedikit ditampilkan lebih dulu.",
+      global: (n, b) => b === "–" ? "Dokter per 100.000 penduduk. Tidak ada rasio rekomendasi internasional untuk spesialis ini, jadi pengaturan ini tidak memberinya warna." : `Dokter per 100.000 penduduk. Rekomendasi: minimal ${b} per 100.000. Daerah dengan jumlah paling sedikit ditampilkan lebih dulu.`,
+      catchment: (n, b, km) => `Dokter per 100.000 penduduk di RS dalam radius ${km} km. Rata-rata nasional ${b}. Daerah dengan jumlah paling sedikit ditampilkan lebih dulu.` },
     "rg.thKab": "Kab/kota", "rg.thProv": "Provinsi", "rg.thPop": "Penduduk", "rg.thHosp": "Rumah sakit", "rg.thDoctors": "Dokter",
-    "rg.thPer": "Per 100rb penduduk", "rg.thVs": "Dibanding biasanya",
+    "rg.thPer": "Per 100rb penduduk", "rg.thPerCatch": km => `Per 100rb, radius ${km} km`, "rg.thWhy": "Pengecekan wilayah",
+    "rg.thVs": { custom: "Dibanding biasanya", national: "Dibanding rasio", global: "Dibanding rekomendasi", catchment: "Dibanding rata-rata nasional" },
     "rg.title": "Wilayah",
-    "rg.lede": "Dokter per 100.000 penduduk di setiap kab/kota. Merah berarti tidak ada sama sekali. Secara bawaan menampilkan 19 spesialis yang dinilai skor; pilih satu spesialis untuk meranking daerah, atau beberapa untuk membandingkan spesialis itu saja.",
-    "rg.typical": "Kab/kota pada umumnya", "rg.cellTitle": n => `${n} spesialis`,
+    "rg.lede": "Dokter per 100.000 penduduk di setiap kab/kota. Secara bawaan menampilkan 19 spesialis yang dinilai skor; pilih satu spesialis untuk meranking daerah, atau beberapa untuk membandingkan spesialis itu saja.",
+    "rg.typical": { custom: "Kab/kota pada umumnya", global: "Rekomendasi", catchment: "Rata-rata nasional" }, "rg.cellTitle": n => `${n} spesialis`,
 
     "q.title": "Kualitas data", "q.lede": "Dasar perhitungan skor, dan apa yang belum tersedia. Memperbaiki item di sini akan mengubah skor.",
     "q.kmkMatched": "RS KMK yang cocok dengan SIRS", "q.waiting": "Menunggu tinjauan Anda",
@@ -309,12 +347,24 @@ const STRINGS = {
     "st.theme": "Tema", "st.system": "Ikuti komputer saya", "st.light": "Terang", "st.dark": "Gelap",
     "st.lang": "Bahasa", "st.en": "English", "st.id": "Bahasa Indonesia",
     "st.note": "Warna peta, legenda, dan semua halaman langsung berubah.",
+    "st.area": 'Cara mengukur "sedikit di wilayah ini"',
+    "st.areaLede": "Ini mengatur bagian wilayah dari skor (maksimal 20 dari 100 poin), jadi mengubah skor total dan tingkat kebutuhan di semua halaman. Tiga bagian lainnya tetap sama.",
+    "st.areaDefault": "(bawaan)",
+    "st.areaMore": 'Sumber setiap pilihan ada di <a href="#about">Cara kerja skor</a>.',
+    "area.name": { custom: "Dibanding daerah lain (asli)", national: "Target prioritas nasional (Kemenkes)",
+      global: "Rasio rekomendasi global", catchment: "Terjangkau dalam 50 km" },
+    "area.desc": {
+      custom: "Membandingkan jumlah dokter per 100.000 penduduk di kab/kota dengan kab/kota nilai tengah di Indonesia. Sederhana, tetapi tolok ukurnya hanya kondisi umum saat ini, batas kab/kota menjadi tembok, dan untuk spesialis langka daerah pada umumnya tidak punya sama sekali, jadi hanya \"tidak ada sama sekali\" yang mendapat poin.",
+      national: "Memakai target Kemenkes sendiri: setiap RSUD kab/kota wajib punya 7 dokter spesialis dasar (dihitung dari pemantau kekosongan Kemenkes DREAMS), dan RS jejaring KMK 1277/2024 membutuhkan dokter untuk target kanker, jantung, stroke, ginjal, serta ibu dan anak. Spesialis lain tidak mendapat poin wilayah.",
+      global: "Membandingkan dengan rasio yang diterbitkan: minimal 5 dokter anestesi per 100.000 penduduk (WFSA) dan 20 dokter bedah, anestesi, dan kandungan per 100.000 jika digabung (Lancet Commission on Global Surgery). Spesialis tanpa rasio terbitan dilewati, tidak ditebak.",
+      catchment: "Menghitung dokter di semua RS dalam radius 50 km, dibagi untuk semua penduduk yang dilayani RS tersebut (metode two-step floating catchment dari riset akses kesehatan), lalu dibandingkan dengan rata-rata nasional. Daerah di sebelah kota yang banyak dokternya tidak ditandai, dan spesialis langka dinilai dengan adil. Paling mendekati akses sebenarnya." },
+    "area.current": name => `Pengecekan wilayah: ${name}.`, "area.change": "Ubah di Pengaturan",
   },
 };
 
 // Long "How the score works" page, one function per language.
 const ABOUT = {
-  en: (acc, D, esc) => `
+  en: (acc, D, esc, area) => `
     <h1>How to read the need score</h1>
     <p class="lede">Every hospital gets a need score for every kind of specialist, from 0 to 100.
       <b>Higher means the hospital needs that doctor more.</b> 0 means we found no sign it needs one.</p>
@@ -329,9 +379,18 @@ const ABOUT = {
       <li><b>Missing a basic doctor: up to 35 points.</b> Every general hospital (RSU) should have an anesthesiologist, general surgeon, lab doctor (clinical pathologist), radiologist, internist, pediatrician and OB-GYN. Has none: +35. Has only one: +12, because one doctor can't be on call day and night alone. Specialty hospitals (RSIA, eye hospitals and so on) skip this check.</li>
       <li><b>Government plan needs it: up to 30 points.</b> The KMK 1277/2024 decree tells 578 government hospitals to build cancer, heart, stroke, kidney and mother-and-child services to a set level (Madya, then Utama, then Paripurna). Each level needs certain doctors. Has none: +30. Has only one at Utama or Paripurna level: +10. Private hospitals are not in the decree, so they never get these points.</li>
       <li><b>Fewer than similar hospitals: up to 15 points.</b> We compare with hospitals of the same type and size. If similar hospitals usually have 2 and this one has 0, that's +15; if it has 1, +7.5.</li>
-      <li><b>Few in this area: up to 20 points.</b> We count these doctors per 100,000 people in the kab/kota. None in the whole kab/kota: +20. Less than half of a typical area: +12. Below a typical area: +6. This only counts if the hospital should plausibly have that doctor, so a small clinic-sized hospital doesn't "need" a heart surgeon just because the area has none.</li>
+      <li><b>Few in this area: up to 20 points.</b> We count these doctors per 100,000 people in the kab/kota. How "few" is judged is a choice in Settings (see the next section); the original rule is: none in the whole kab/kota: +20, less than half of a typical area: +12, below a typical area: +6. This only counts if the hospital should plausibly have that doctor, so a small clinic-sized hospital doesn't "need" a heart surgeon just because the area has none.</li>
     </ul>
     <p><b>Example:</b> a 53-bed general hospital with no general surgeon gets +35 (missing a basic doctor) + 15 (similar hospitals have 1) + 12 (the area has few) = <b>62, high need</b>.</p>
+    <h2 id="area">Four ways to measure "few in this area"</h2>
+    <p>Pick one under <a href="#settings">Settings</a>. All four give +20, +12 or +6 points and use the same relevance check. Now in use: <b>${esc(STRINGS.en["area.name"][area])}</b>.</p>
+    <ul>
+      <li><b>Compared with other areas (original).</b> Doctors per 100,000 people in the kab/kota against the middle kab/kota in Indonesia. Its weak spots: "typical" is not a standard, kab/kota borders are hard edges, and when most areas have none of a rare specialty the middle value is 0, so only "none at all" can score.</li>
+      <li><b>National priority targets (Kemenkes).</b> Checks the targets the government has actually set. (1) The 7 basic specialists (internal medicine, pediatrics, OB-GYN, surgery, anesthesiology, radiology, clinical pathology) are the minimum for every RSUD kab/kota; their counts at public hospitals come from Kemenkes DREAMS, the national vacancy tracker. (2) KMK 1277/2024 network hospitals need the specialists for their target tier. None in the kab/kota: +20. Only non-government hospitals have one: +12. Some covered public hospitals have none: +6. Specialties outside these targets get 0.</li>
+      <li><b>Global recommended ratios.</b> Only ratios a recognised body has published: at least <b>5 anesthesiologists per 100,000 people</b> (WFSA, Kempthorne et al., Anesthesia &amp; Analgesia 2017) and <b>20 surgical, anaesthetic and obstetric specialists per 100,000</b> (Lancet Commission on Global Surgery, Meara et al. 2015; surgeons, anesthesiologists and OB-GYNs counted together). Under half the ratio: +12; below it: +6; none: +20. No such ratio exists for other specialties, so they show "n/a" instead of a guess. Indonesia's own planning target (Bappenas) of 0.28 specialists per 1,000 people covers all specialties together, so it can't be used per specialty.</li>
+      <li><b>Reachable within 50 km.</b> The two-step floating catchment area method (Luo &amp; Wang 2003), common in health-access research. Each hospital's doctors are shared among the people of every kab/kota within 50 km; each kab/kota then adds up its share from all those hospitals. The result is compared with the national average (total doctors ÷ total population), which is only 0 when nobody in Indonesia has that specialist. It fixes the border problem (Bekasi can use Jakarta's doctors) and the rare-specialty problem. Distances are straight lines, so a strait or mountain range can make access look better than it is.</li>
+    </ul>
+    <p class="note">The national, global and 50 km options count the 7 basic specialists at public hospitals from Kemenkes DREAMS where it covers them, because SIRS often reports none where DREAMS lists one. SIRS counts a doctor at every hospital where they work, so all per-100,000 figures run high; this matters most for the global ratios.</p>
     <h2 id="limits">How accurate is this data?</h2>
     <p>Good enough to see patterns, not to trust one hospital's numbers without checking. All sources are filled in by hospitals and doctors themselves in government systems; nobody has verified them on the ground.</p>
     <ul>
@@ -370,10 +429,11 @@ const ABOUT = {
       <li>Hospitals and staff: SIRS / RS Online, Kemenkes (sirs.kemkes.go.id), downloaded ${esc(D.meta.sirs_downloaded)}.</li>
       <li>KMK HK.01.07/MENKES/1277/2024: <a href="kmk.pdf" target="_blank" rel="noopener">local copy</a> (keslan.kemkes.go.id).</li>
       <li>Permenkes 3/2020: peraturan.bpk.go.id/Download/144763 · PP 28/2024: peraturan.bpk.go.id/Details/294077</li>
+      <li>7 basic specialists: Kemenkes DREAMS (dreams.kemkes.go.id). Ratios: WFSA Global Anesthesia Workforce Survey (Anesth Analg 2017;125:981–990); Lancet Commission on Global Surgery (Lancet 2015;386:569–624). Catchment method: Luo &amp; Wang, Environment and Planning B 2003;30:865–884.</li>
       <li>Population: ${esc(D.meta.population_source)}.</li>
     </ul>`,
 
-  id: (acc, D, esc) => `
+  id: (acc, D, esc, area) => `
     <h1>Cara membaca skor kebutuhan</h1>
     <p class="lede">Setiap rumah sakit mendapat skor kebutuhan untuk setiap jenis spesialis, dari 0 sampai 100.
       <b>Makin tinggi berarti rumah sakit makin membutuhkan dokter itu.</b> 0 berarti tidak ditemukan tanda kebutuhan.</p>
@@ -388,9 +448,18 @@ const ABOUT = {
       <li><b>Tidak ada dokter dasar: maksimal 35 poin.</b> Setiap rumah sakit umum (RSU) seharusnya punya dokter spesialis anestesi, bedah, patologi klinik, radiologi, penyakit dalam, anak, dan kandungan. Tidak ada: +35. Hanya satu: +12, karena satu dokter tidak bisa jaga siang dan malam sendirian. Rumah sakit khusus (RSIA, RS mata, dan sebagainya) tidak melalui pengecekan ini.</li>
       <li><b>Dibutuhkan rencana pemerintah: maksimal 30 poin.</b> KMK 1277/2024 menugaskan 578 rumah sakit pemerintah membangun layanan kanker, jantung, stroke, ginjal, serta ibu dan anak sampai tingkat tertentu (Madya, lalu Utama, lalu Paripurna). Setiap tingkat membutuhkan dokter tertentu. Tidak ada: +30. Hanya satu di tingkat Utama atau Paripurna: +10. Rumah sakit swasta tidak termasuk dalam keputusan ini, jadi tidak pernah mendapat poin ini.</li>
       <li><b>Lebih sedikit dari RS serupa: maksimal 15 poin.</b> Dibandingkan dengan rumah sakit sejenis dan seukuran. Jika RS serupa biasanya punya 2 dan RS ini punya 0, itu +15; jika punya 1, +7,5.</li>
-      <li><b>Sedikit di wilayah ini: maksimal 20 poin.</b> Dihitung jumlah dokter ini per 100.000 penduduk di kab/kota. Tidak ada sama sekali di kab/kota: +20. Kurang dari separuh daerah pada umumnya: +12. Di bawah daerah pada umumnya: +6. Ini hanya dihitung jika rumah sakit memang wajar punya dokter itu, jadi RS kecil tidak dianggap "butuh" dokter bedah jantung hanya karena di daerahnya tidak ada.</li>
+      <li><b>Sedikit di wilayah ini: maksimal 20 poin.</b> Dihitung jumlah dokter ini per 100.000 penduduk di kab/kota. Cara menilai "sedikit" bisa dipilih di Pengaturan (lihat bagian berikutnya); aturan aslinya: tidak ada sama sekali di kab/kota: +20, kurang dari separuh daerah pada umumnya: +12, di bawah daerah pada umumnya: +6. Ini hanya dihitung jika rumah sakit memang wajar punya dokter itu, jadi RS kecil tidak dianggap "butuh" dokter bedah jantung hanya karena di daerahnya tidak ada.</li>
     </ul>
     <p><b>Contoh:</b> rumah sakit umum 53 tempat tidur tanpa dokter spesialis bedah mendapat +35 (tidak ada dokter dasar) + 15 (RS serupa punya 1) + 12 (di wilayahnya sedikit) = <b>62, kebutuhan tinggi</b>.</p>
+    <h2 id="area">Empat cara mengukur "sedikit di wilayah ini"</h2>
+    <p>Pilih salah satu di <a href="#settings">Pengaturan</a>. Keempatnya memberi +20, +12, atau +6 poin dan memakai pengecekan relevansi yang sama. Sedang dipakai: <b>${esc(STRINGS.id["area.name"][area])}</b>.</p>
+    <ul>
+      <li><b>Dibanding daerah lain (asli).</b> Dokter per 100.000 penduduk di kab/kota dibanding kab/kota nilai tengah di Indonesia. Kelemahannya: "pada umumnya" bukan standar, batas kab/kota menjadi tembok, dan jika sebagian besar daerah tidak punya spesialis langka, nilai tengahnya 0, jadi hanya "tidak ada sama sekali" yang mendapat poin.</li>
+      <li><b>Target prioritas nasional (Kemenkes).</b> Mengecek target yang benar-benar ditetapkan pemerintah. (1) 7 dokter spesialis dasar (penyakit dalam, anak, kandungan, bedah, anestesi, radiologi, patologi klinik) adalah standar minimal setiap RSUD kab/kota; jumlahnya di RS pemerintah diambil dari Kemenkes DREAMS, pemantau kekosongan nasional. (2) RS jejaring KMK 1277/2024 membutuhkan dokter untuk tingkat targetnya. Tidak ada di kab/kota: +20. Hanya ada di RS non-pemerintah: +12. Sebagian RS pemerintah yang dicakup tidak punya: +6. Spesialis di luar target ini mendapat 0.</li>
+      <li><b>Rasio rekomendasi global.</b> Hanya rasio yang diterbitkan lembaga yang diakui: minimal <b>5 dokter anestesi per 100.000 penduduk</b> (WFSA, Kempthorne dkk., Anesthesia &amp; Analgesia 2017) dan <b>20 dokter spesialis bedah, anestesi, dan kandungan per 100.000</b> (Lancet Commission on Global Surgery, Meara dkk. 2015; dihitung bersama). Kurang dari separuh rasio: +12; di bawahnya: +6; tidak ada: +20. Spesialis lain tidak punya rasio seperti ini, jadi ditampilkan "n/a" alih-alih ditebak. Target perencanaan Indonesia sendiri (Bappenas) 0,28 dokter spesialis per 1.000 penduduk mencakup semua spesialis sekaligus, jadi tidak bisa dipakai per spesialis.</li>
+      <li><b>Terjangkau dalam 50 km.</b> Metode two-step floating catchment area (Luo &amp; Wang 2003) yang umum dalam riset akses kesehatan. Dokter di setiap RS dibagi untuk penduduk semua kab/kota dalam radius 50 km; lalu setiap kab/kota menjumlahkan bagiannya dari semua RS itu. Hasilnya dibandingkan dengan rata-rata nasional (total dokter ÷ total penduduk), yang hanya 0 jika tidak ada satu pun dokter spesialis itu di Indonesia. Ini mengatasi masalah batas wilayah (Bekasi bisa memakai dokter Jakarta) dan masalah spesialis langka. Jarak dihitung garis lurus, jadi selat atau pegunungan bisa membuat akses terlihat lebih baik dari kenyataannya.</li>
+    </ul>
+    <p class="note">Pilihan nasional, global, dan 50 km menghitung 7 dokter spesialis dasar di RS pemerintah dari Kemenkes DREAMS jika tercakup, karena SIRS sering mencatat nol padahal DREAMS mencatat ada. SIRS menghitung dokter di setiap RS tempat ia bekerja, jadi semua angka per 100.000 cenderung tinggi; ini paling berpengaruh pada rasio global.</p>
     <h2 id="limits">Seberapa akurat data ini?</h2>
     <p>Cukup untuk melihat pola, tetapi angka satu rumah sakit jangan dipercaya tanpa dicek. Semua sumber diisi sendiri oleh rumah sakit dan dokter di sistem pemerintah; belum ada yang memverifikasi di lapangan.</p>
     <ul>
@@ -429,6 +498,7 @@ const ABOUT = {
       <li>Rumah sakit dan staf: SIRS / RS Online, Kemenkes (sirs.kemkes.go.id), diunduh ${esc(D.meta.sirs_downloaded)}.</li>
       <li>KMK HK.01.07/MENKES/1277/2024: <a href="kmk.pdf" target="_blank" rel="noopener">salinan lokal</a> (keslan.kemkes.go.id).</li>
       <li>Permenkes 3/2020: peraturan.bpk.go.id/Download/144763 · PP 28/2024: peraturan.bpk.go.id/Details/294077</li>
+      <li>7 dokter spesialis dasar: Kemenkes DREAMS (dreams.kemkes.go.id). Rasio: WFSA Global Anesthesia Workforce Survey (Anesth Analg 2017;125:981–990); Lancet Commission on Global Surgery (Lancet 2015;386:569–624). Metode catchment: Luo &amp; Wang, Environment and Planning B 2003;30:865–884.</li>
       <li>Penduduk: ${esc(D.meta.population_source)}.</li>
     </ul>`,
 };

@@ -194,3 +194,6 @@ tr.spot input[type="text"] { display: block; width: 220px; margin-bottom: 4px; }
 .settings fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--panel); display: grid; gap: 8px; }
 .settings legend { font-weight: 700; padding: 0 4px; }
 .settings label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.settings .area-methods label { align-items: flex-start; }
+.settings .area-methods input { margin-top: 3px; }
+.settings .area-methods p { margin: 0; }

@@ -1,6 +1,7 @@
 "use strict";
 // Specialist demand dashboard. Data comes from dashboard/data.json (build_dashboard.py); text from i18n.js.
-// Score rows: [specIndex, n, peerMedian, A, B, C, D, total, labelIndex, reasonIds, kmkService]
+// Score rows: [specIndex, n, peerMedian, A, B, C, D, total, labelIndex, reasonIds, kmkService, relevant, boost, baseReasonIds]
+// D, total, label and reasonIds follow the area check picked in Settings (applyAreaMethod).
 
 const LABELS = ["Low", "Moderate", "High"]; // CSV export keeps English labels
 const LEVEL_VAR = ["--low", "--mod", "--high"];
@@ -21,6 +22,7 @@ const store = {
 };
 let lang = store.get("lang", "en") === "id" ? "id" : "en";
 let theme = store.get("theme", "system");
+let areaMethod = store.get("areaMethod", ""); // checked against data.json in applyAreaMethod
 const t = (key, ...args) => { const v = STRINGS[lang][key] ?? STRINGS.en[key]; return typeof v === "function" ? v(...args) : v; };
 const num = n => Number(n).toLocaleString(lang === "id" ? "id-ID" : "en-US");
 function applyTheme() {
@@ -40,7 +42,9 @@ const lbl = i => `<span class="lbl l${i}">${t("need")[i]}</span>`;
 const specLabel = i => lang === "id" ? D.specialties[i].name_id : D.specialties[i].name;
 const specName = i => `${specLabel(i)} (${D.specialties[i].code})`;
 const ownName = o => t(`own.${o}`);
-const reasonText = i => (lang === "id" && D.reasons_id ? D.reasons_id[i] : D.reasons[i]);
+// Area reasons say "{kab}"; each hospital's own kab/kota name goes in.
+const kabName = h => D.kabById.get(h.kab_id)?.kab ?? h.kab;
+const reasonText = (i, h) => (lang === "id" && D.reasons_id ? D.reasons_id[i] : D.reasons[i]).replace("{kab}", h ? kabName(h) : "");
 const provKey = s => { const k = String(s).toLowerCase().replace(/daerah istimewa|d\.i\./g, "di").replace(/[^a-z]/g, ""); return ({ diyogyakarta: "yogyakarta", dkijakarta: "jakarta", daerahkhususjakarta: "jakarta", kepbangkabelitung: "kepulauanbangkabelitung" })[k] || k; };
 
 const classOf = h => ({ A: "A", B: "B", C: "C", D: "D", "D PRATAMA": "D Pratama" })[h.kelas] || "Not set";
@@ -91,6 +95,32 @@ function accuracyStats() {
   const priv = D.hospitals.filter(h => h.own === "Private").length;
   return { pairs, within1, high, contradicted, priv, share: high ? Math.round(contradicted / high * 100) : 0 };
 }
+
+// ---------- area check method ----------
+// data.json has the area points of every method per kab/kota. Switching method recomputes D, total, label and
+// reasons exactly as scoring.py does (pillar_d, score_pair, label_for).
+const areaName = (m = areaMethod) => t("area.name")[m];
+function areaFor(h, r) {
+  const k = D.kabById.get(h.kab_id);
+  if (!k) return [null, D.area.missing]; // no population data: reported even when the gate fails
+  if (!r[11]) return [0, -1];
+  return [k.area[areaMethod][r[0]], k.area_r[areaMethod][r[0]]];
+}
+function applyAreaMethod() {
+  if (!D.area.methods.includes(areaMethod)) areaMethod = D.area.default;
+  for (const h of D.hospitals) {
+    for (const r of h.scores) {
+      const [d, rid] = areaFor(h, r);
+      r[6] = d;
+      r[7] = Math.min(Math.round((r[3] + r[4] + r[5] + (d || 0) + r[12]) * 100) / 100, 100);
+      r[8] = r[1] === 0 && (r[3] > 0 || r[4] > 0) ? 2 : r[7] >= 60 ? 2 : r[7] >= 30 ? 1 : 0;
+      r[9] = rid >= 0 ? [...r[13], rid] : r[13];
+    }
+    h.maxLevel = Math.max(...h.scores.map(r => r[8]));
+    h.maxTotal = Math.max(...h.scores.map(r => r[7]));
+  }
+}
+const areaNote = () => `<p class="note">${esc(t("area.current", areaName()))} <a href="#settings">${esc(t("area.change"))}</a></p>`;
 
 // ---------- multi-select filters ----------
 // Each filter is a dropdown of checkboxes; nothing ticked means "all".
@@ -232,8 +262,9 @@ function visiblePairs(f = F()) {
 // ---------- reasons ----------
 function reasonsHTML(h, r, tag = "div", limit) {
   return r[9].slice(0, limit ?? r[9].length).map(i => {
-    let text = esc(reasonText(i));
-    if (D.reasons[i].includes("KMK 1277") && h.kmk) text += ` <a href="kmk.pdf#page=${h.kmk.page}" target="_blank" rel="noopener">${t("pageRef", h.kmk.page)}</a>`;
+    let text = esc(reasonText(i, h));
+    // Area reasons are about the whole kab/kota, so they don't link to this hospital's KMK page.
+    if (D.reasons[i].includes("KMK 1277") && r[13].includes(i) && h.kmk) text += ` <a href="kmk.pdf#page=${h.kmk.page}" target="_blank" rel="noopener">${t("pageRef", h.kmk.page)}</a>`;
     return `<${tag}>${text}</${tag}>`;
   }).join("");
 }
@@ -399,7 +430,7 @@ function openDrawer(h) {
   dr.innerHTML = `<button type="button" class="close" id="drawerClose" aria-label="${esc(t("close"))}">×</button>
     <h2>${esc(h.name)}</h2>${chipsHTML(h)}
     <div class="meta-text">${esc(h.address)}<br>${esc(h.kab)}, ${esc(h.prov)}<br>${kmkLine(h)}</div>
-    <p class="note">${esc(t("drawer.explain"))}</p>
+    <p class="note">${esc(t("drawer.explain"))} ${esc(t("area.current", areaName()))}</p>
     <div><b>${esc(t("drawer.highs", highs, mods))}</b></div>
     <div class="needs">${needsHTML(h)}</div>
     <p class="note">${esc(t("drawer.disclaimer"))} <a href="#about">${esc(t("dataLimits"))}</a></p>
@@ -468,7 +499,7 @@ function renderOverview() {
 const SPEC_SORT_KEYS = [
   x => x[2], x => x[0].name.toLowerCase(), x => specLabel(x[1][0]).toLowerCase(), x => x[0].kab.toLowerCase(), x => x[0].own,
   x => x[0].type, x => classIndex(x[0]), x => x[0].beds, x => x[1][1], x => (dreamsOf(x[0], x[1][0]) || [null, null, null, null])[3],
-  x => x[1][2], x => x[1][7], x => x[1][8], x => (x[1][9].length ? reasonText(x[1][9][0]) : null),
+  x => x[1][2], x => x[1][7], x => x[1][8], x => (x[1][9].length ? reasonText(x[1][9][0], x[0]) : null),
 ];
 function renderSpecialty() {
   const f = F(), el = $("view-specialty");
@@ -484,7 +515,7 @@ function renderSpecialty() {
   const shown = rows.slice(0, state.specLimit);
   const title = f.spec.length === 1 ? specName(f.spec[0]) : `${t("sp.many", f.spec.length)}: ${f.spec.map(i => D.specialties[i].code).join(", ")}`;
   el.innerHTML = `<h1>${esc(title)}</h1>
-    <p class="lede">${esc(t("sp.lede", num(rows.length)))}</p>
+    <p class="lede">${esc(t("sp.lede", num(rows.length)))}</p>${areaNote()}
     <div class="toolbar"><button type="button" id="exportCsv">${esc(t("sp.export", num(rows.length)))}</button></div>
     <div class="table-wrap"><table data-sortmode="data"><thead><tr><th class="r">${t("th.rank")}</th><th>${esc(t("th.hospital"))}</th><th>${esc(t("th.specialty"))}</th><th>${esc(t("th.kab"))}</th><th>${esc(t("th.own"))}</th><th>${esc(t("th.type"))}</th><th>${esc(t("th.class"))}</th><th class="r">${esc(t("th.beds"))}</th>
       <th class="r">${esc(t("th.has"))}</th><th class="r" title="${esc(t("th.kemenkesTitle"))}">${esc(t("th.kemenkes"))}</th><th class="r">${esc(t("th.similar"))}</th><th class="r">${esc(t("th.score"))}</th><th>${esc(t("th.need"))}</th><th>${esc(t("th.reason"))}</th></tr></thead>
@@ -499,9 +530,9 @@ function renderSpecialty() {
 function exportCsv(rows, filename) {
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const head = ["hospital_id", "hospital", "province", "kab_kota", "ownership", "owner", "type", "class", "beds", "specialty", "count", "peer_median",
-    "A_mandatory", "B_kmk", "C_peer", "D_regional", "total", "label", "reasons"];
+    "A_mandatory", "B_kmk", "C_peer", "D_regional", "area_method", "total", "label", "reasons"];
   const lines = rows.map(([h, r]) => [h.id, h.name, h.prov, h.kab, h.own, h.owner, h.type, classOf(h), h.beds, D.specialties[r[0]].code, r[1], r[2],
-    r[3], r[4], r[5], r[6] ?? "n/a", r[7], LABELS[r[8]], r[9].map(reasonText).join(" | ")].map(q).join(","));
+    r[3], r[4], r[5], r[6] ?? "n/a", areaMethod, r[7], LABELS[r[8]], r[9].map(i => reasonText(i, h)).join(" | ")].map(q).join(","));
   const blob = new Blob(["﻿" + [head.join(","), ...lines].join("\r\n")], { type: "text/csv" });
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: filename });
   document.body.appendChild(a); a.click(); a.remove();
@@ -525,7 +556,7 @@ function renderHospitalMatrix(el) {
   const need = t("need");
   const cell = (x, si) => {
     const r = x.scores[si];
-    const tip = t("hm.tip", specLabel(si), fmt(r[1]), fmt(r[7]), need[r[8]], r[9].length ? reasonText(r[9][0]) : "");
+    const tip = t("hm.tip", specLabel(si), fmt(r[1]), fmt(r[7]), need[r[8]], r[9].length ? reasonText(r[9][0], x) : "");
     return `<td class="r num need-${r[8]}${chosen.has(si) ? " col-hl" : ""}" title="${esc(tip)}">${fmt(r[1])}</td>`;
   };
   el.innerHTML = `<h1>${esc(t("hm.title"))}</h1>
@@ -556,42 +587,50 @@ function renderHospital() {
     ${esc(t("hd.compare", h.peers, h.type, h.band))} ${esc(subNote)}
     <a href="https://sirs.kemkes.go.id/fo/home/profile_rs/${h.id}" target="_blank" rel="noopener">${esc(t("drawer.sirs"))}</a></p>
     <div class="table-wrap"><table><thead><tr><th>${esc(t("th.specialty"))}</th><th class="r">${esc(t("th.has"))}</th><th class="r" title="${esc(t("th.kemenkesTitle"))}">${esc(t("th.kemenkes"))}</th><th class="r">${esc(t("th.similar"))}</th>
-      ${th("hd.thBasic", "hd.thBasicT")}${th("hd.thPlan", "hd.thPlanT")}${th("hd.thSimilar", "hd.thSimilarT")}${th("hd.thArea", "hd.thAreaT")}${th("hd.thScore")}<th>${esc(t("th.need"))}</th><th>${esc(t("hd.thWhy"))}</th></tr></thead>
+      ${th("hd.thBasic", "hd.thBasicT")}${th("hd.thPlan", "hd.thPlanT")}${th("hd.thSimilar", "hd.thSimilarT")}<th class="r" title="${esc(t("hd.thAreaT") + " " + t("area.current", areaName()))}">${t("hd.thArea")}</th>${th("hd.thScore")}<th>${esc(t("th.need"))}</th><th>${esc(t("hd.thWhy"))}</th></tr></thead>
     <tbody>${rows.map(r => `<tr><td>${esc(specName(r[0]))}</td><td class="r num">${fmt(r[1])}</td>${dreamsCell(h, r)}<td class="r num">${fmt(r[2])}</td>
       <td class="r num">${fmt(r[3])}</td><td class="r num">${fmt(r[4])}</td><td class="r num">${fmt(r[5])}</td><td class="r num">${r[6] == null ? "n/a" : fmt(r[6])}</td>
       <td class="r num"><b>${fmt(r[7])}</b></td><td data-sort="${r[8]}">${lbl(r[8])}</td><td class="reasons">${reasonsHTML(h, r)}${r[8] ? inferred(r) : ""}</td></tr>`).join("")}</tbody></table></div>
     <p class="note">${esc(src)} ${esc(t("hd.selfReported"))} <a href="#about">${esc(t("dataLimits"))}</a></p>
-    <p class="note">${esc(t("hd.scoreNote"))}</p>`;
+    <p class="note">${esc(t("hd.scoreNote"))}</p>${areaNote()}`;
   $("backList").onclick = () => { state.selected = null; render(); };
   $("showMap").onclick = () => { location.hash = "#map"; setTimeout(() => selectHospital(h, true), 50); };
 }
 
 // ---------- regions ----------
+// Values and colors follow the area check picked in Settings: the color is the points that kab/kota gets
+// (before the per-hospital relevance gate), the number is what that method measures.
+const AREA_CLS = { 20: "cell-zero", 12: "cell-half", 6: "cell-below" };
 function renderRegion() {
-  const f = F(), el = $("view-region");
+  const f = F(), el = $("view-region"), m = areaMethod;
   const kabProv = new Map();
   D.hospitals.forEach(h => kabProv.set(h.kab_id, h.prov));
   const provs = new Set([...f.prov].map(provKey));
   let kabs = D.kabs.filter(k => (!provs.size || provs.has(provKey(kabProv.get(k.id) || k.prov))) && (!f.kab.size || f.kab.has(k.id)));
-  const cls = (count, dens, m) => count === 0 ? "cell-zero" : dens < 0.5 * m ? "cell-half" : dens < m ? "cell-below" : "";
-  const dens = (k, si) => k.pop ? k.totals[si] / k.pop * 1e5 : null;
-  const legend = `<p class="note">${t("rg.legend")}</p>`;
+  const count = (k, si) => (m === "custom" ? k.totals : k.best)[si];
+  const val = (k, si) => m === "catchment" ? k.access[si] : k.pop ? count(k, si) / k.pop * 1e5 : null;
+  const bench = si => D.area.bench[m]?.[si] ?? null;
+  const benchText = si => bench(si) == null ? "–" : fmt(bench(si)) + (m === "global" && D.area.bench.global_group[si] ? "*" : "");
+  const cls = (k, si) => AREA_CLS[k.area[m][si]] || "";
+  const legend = `<p class="note">${t("rg.legend", areaName(), t("rg.levels")[m], m === "catchment" ? t("rg.unitCatch", D.area.km) : t("rg.unit"))}
+    ${m === "global" ? esc(t("rg.globalNote")) : ""} <a href="#settings">${esc(t("area.change"))}</a></p>`;
   if (f.spec.length === 1) {
-    const si = f.spec[0], m = D.national_median[si];
-    kabs = kabs.sort((a, b) => (dens(a, si) ?? 0) - (dens(b, si) ?? 0) || b.pop - a.pop);
-    el.innerHTML = `<h1>${esc(t("rg.oneTitle", specName(si)))}</h1><p class="lede">${esc(t("rg.oneLede", D.kabs.length, fmt(m)))}</p>${legend}
-      <div class="table-wrap"><table><thead><tr><th>${esc(t("rg.thKab"))}</th><th>${esc(t("rg.thProv"))}</th><th class="r">${esc(t("rg.thPop"))}</th><th class="r">${esc(t("rg.thHosp"))}</th><th class="r">${esc(t("rg.thDoctors"))}</th><th class="r">${esc(t("rg.thPer"))}</th><th class="r">${esc(t("rg.thVs"))}</th></tr></thead>
-      <tbody>${kabs.map(k => { const d = dens(k, si); return `<tr><td>${esc(k.kab)}</td><td>${esc(k.prov)}</td><td class="r num">${num(k.pop)}</td><td class="r num">${k.hospitals}</td>
-        <td class="r num ${cls(k.totals[si], d, m)}">${k.totals[si]}</td><td class="r num ${cls(k.totals[si], d, m)}">${fmt(d)}</td><td class="r num">${m ? fmt(d / m) + "×" : "n/a"}</td></tr>`; }).join("")}</tbody></table></div>`;
+    const si = f.spec[0], b = bench(si);
+    kabs = kabs.sort((a, c) => (val(a, si) ?? 0) - (val(c, si) ?? 0) || c.pop - a.pop);
+    el.innerHTML = `<h1>${esc(t("rg.oneTitle", specName(si)))}</h1><p class="lede">${esc(t("rg.oneLede")[m](D.kabs.length, benchText(si), D.area.km))}</p>${legend}
+      <div class="table-wrap"><table><thead><tr><th>${esc(t("rg.thKab"))}</th><th>${esc(t("rg.thProv"))}</th><th class="r">${esc(t("rg.thPop"))}</th><th class="r">${esc(t("rg.thHosp"))}</th><th class="r">${esc(t("rg.thDoctors"))}</th><th class="r">${esc(m === "catchment" ? t("rg.thPerCatch", D.area.km) : t("rg.thPer"))}</th><th class="r">${esc(t("rg.thVs")[m])}</th><th>${esc(t("rg.thWhy"))}</th></tr></thead>
+      <tbody>${kabs.map(k => { const v = val(k, si), rid = k.area_r[m][si]; return `<tr><td>${esc(k.kab)}</td><td>${esc(k.prov)}</td><td class="r num">${num(k.pop)}</td><td class="r num">${k.hospitals}</td>
+        <td class="r num ${cls(k, si)}">${count(k, si)}</td><td class="r num ${cls(k, si)}">${fmt(v)}</td><td class="r num">${b && v != null ? fmt(v / b) + "×" : "n/a"}</td>
+        <td class="note">${rid >= 0 ? esc((lang === "id" ? D.reasons_id[rid] : D.reasons[rid]).replace("{kab}", k.kab)) : ""}</td></tr>`; }).join("")}</tbody></table></div>`;
     return;
   }
   const cols = f.spec.length ? f.spec : D.specialties.map((s, i) => i).slice(0, CORE);
-  kabs = kabs.sort((a, b) => a.prov.localeCompare(b.prov) || a.kab.localeCompare(b.kab));
+  kabs = kabs.sort((a, c) => a.prov.localeCompare(c.prov) || a.kab.localeCompare(c.kab));
   el.innerHTML = `<h1>${esc(t("rg.title"))}</h1><p class="lede">${esc(t("rg.lede"))}</p>${legend}
     <div class="table-wrap"><table><thead><tr><th>${esc(t("rg.thKab"))}</th><th class="r">${esc(t("rg.thPop"))}</th>${cols.map(i => `<th class="r" title="${esc(specLabel(i))}">${esc(D.specialties[i].code)}</th>`).join("")}</tr>
-      <tr><td class="note">${esc(t("rg.typical"))}</td><td></td>${cols.map(i => `<td class="r num note">${fmt(D.national_median[i])}</td>`).join("")}</tr></thead>
+      ${D.area.bench[m] ? `<tr><td class="note">${esc(t("rg.typical")[m])}</td><td></td>${cols.map(i => `<td class="r num note">${benchText(i)}</td>`).join("")}</tr>` : ""}</thead>
     <tbody>${kabs.map(k => `<tr><td>${esc(k.kab)}<div class="note">${esc(k.prov)}</div></td><td class="r num">${num(k.pop)}</td>
-      ${cols.map(i => { const d = dens(k, i); return `<td class="r num ${cls(k.totals[i], d, D.national_median[i])}" title="${esc(t("rg.cellTitle", k.totals[i]))}">${fmt(d)}</td>`; }).join("")}</tr>`).join("")}</tbody></table></div>`;
+      ${cols.map(i => `<td class="r num ${cls(k, i)}" title="${esc(t("rg.cellTitle", count(k, i)))}">${fmt(val(k, i))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
 // ---------- data quality ----------
@@ -717,7 +756,7 @@ async function saveReview(e) {
 
 // ---------- about & settings ----------
 function renderAbout() {
-  $("view-about").innerHTML = `<div class="prose">${ABOUT[lang](accuracyStats(), D, esc)}</div>`;
+  $("view-about").innerHTML = `<div class="prose">${ABOUT[lang](accuracyStats(), D, esc, areaMethod)}</div>`;
 }
 function renderSettings() {
   const radio = (name, value, cur, label) => `<label><input type="radio" name="${name}" value="${value}"${value === cur ? " checked" : ""}> ${esc(label)}</label>`;
@@ -727,6 +766,11 @@ function renderSettings() {
         ${radio("theme", "system", theme, t("st.system"))}${radio("theme", "light", theme, t("st.light"))}${radio("theme", "dark", theme, t("st.dark"))}</fieldset>
       <fieldset><legend>${esc(t("st.lang"))}</legend>
         ${radio("lang", "en", lang, t("st.en"))}${radio("lang", "id", lang, t("st.id"))}</fieldset>
+      <fieldset class="area-methods"><legend>${esc(t("st.area"))}</legend>
+        <p class="note">${esc(t("st.areaLede"))}</p>
+        ${D.area.methods.map(m => `<label><input type="radio" name="area" value="${m}"${m === areaMethod ? " checked" : ""}>
+          <span><b>${esc(areaName(m))}</b>${m === D.area.default ? ` <span class="note">${esc(t("st.areaDefault"))}</span>` : ""}<br><span class="note">${esc(t("area.desc")[m])}</span></span></label>`).join("")}
+        <p class="note">${t("st.areaMore")}</p></fieldset>
       <p class="note">${esc(t("st.note"))}</p>
     </div>`;
   $("view-settings").querySelectorAll("input[name=theme]").forEach(r => r.onchange = () => {
@@ -734,6 +778,9 @@ function renderSettings() {
   });
   $("view-settings").querySelectorAll("input[name=lang]").forEach(r => r.onchange = () => {
     lang = r.value; store.set("lang", lang); applyLanguage();
+  });
+  $("view-settings").querySelectorAll("input[name=area]").forEach(r => r.onchange = () => {
+    areaMethod = r.value; store.set("areaMethod", areaMethod); applyAreaMethod(); render();
   });
 }
 // Everything with text is rebuilt; filter choices survive because MS keeps the selected values.
@@ -825,12 +872,13 @@ async function loadData() {
   const old = D?.byId;
   D = await res.json();
   D.byId = new Map();
+  D.kabById = new Map(D.kabs.map(k => [k.id, k]));
   for (const h of D.hospitals) {
     D.byId.set(h.id, h);
-    h.maxLevel = Math.max(...h.scores.map(r => r[8]));
-    h.maxTotal = Math.max(...h.scores.map(r => r[7]));
+    for (const r of h.scores) r[13] = r[9];
     if (old?.get(h.id)?.marker) h.marker = old.get(h.id).marker.off("click").on("click", () => selectHospital(h));
   }
+  applyAreaMethod();
   state.selected = keepId ? D.byId.get(keepId) : null;
   renderRail();
 }

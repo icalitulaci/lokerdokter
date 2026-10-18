@@ -7,6 +7,7 @@ Inputs (see README section in specialist-demand-dashboard-prompt.md):
 """
 import csv
 import json
+import math
 import os
 import statistics
 import time
@@ -15,7 +16,9 @@ from collections import Counter, defaultdict
 import dreams_match
 import kmk_match
 from regions import kab_key, kab_match, province_key
-from scoring import BANDS, FLOOR, band_index, required_for, score_pair
+from scoring import (AREA_METHODS, BANDS, BASIC7, CATCHMENT_KM, EITHER, FLOOR, GLOBAL_RATIO, NO_POPULATION, SAO,
+                     area_catchment, area_custom, area_global, area_national, band_index, required_for, score_pair,
+                     two_step_catchment)
 from specialties import NAMES, NAMES_ID, is_doctor_specialist, normalize
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -26,6 +29,7 @@ SPECIALTIES = list(NAMES)
 LABELS = ["Low", "Moderate", "High"]
 PLACEHOLDER = (-2.4185588, 108.4919086)  # SIRS default point used when a hospital never set its location
 MIN_PEERS = 10
+DEFAULT_AREA = "custom"  # area method stored in the score rows; the dashboard can switch it
 
 
 def ownership(owner):
@@ -98,6 +102,92 @@ def peer_groups(hospitals):
     return groups
 
 
+def kab_centers(hospitals):
+    """Median location of each kab/kota's hospitals, preferring exact pins over approximate ones."""
+    groups = defaultdict(list)
+    for h in hospitals:
+        if h["lat"] is not None:
+            groups[h["kab_id"]].append(h)
+    out = {}
+    for k, hs in groups.items():
+        exact = [h for h in hs if not h["approx"]] or hs
+        out[k] = (statistics.median(h["lat"] for h in exact), statistics.median(h["lng"] for h in exact))
+    return out
+
+
+def km(a, b):
+    """Straight-line distance in km between (lat, lng) points (equirectangular; fine at catchment scale)."""
+    x = math.radians(b[1] - a[1]) * math.cos(math.radians((a[0] + b[0]) / 2))
+    return 6371 * math.hypot(x, math.radians(b[0] - a[0]))
+
+
+def catchment_links(hospitals, centers, radius):
+    """Kab/kota each hospital serves: its own, plus every kab/kota whose center is within radius km."""
+    links = {}
+    for h in hospitals:
+        reach = {h["kab_id"]}
+        if h["lat"] is not None:
+            p = (h["lat"], h["lng"])
+            reach.update(k for k, c in centers.items() if abs(c[0] - p[0]) < 1 and km(p, c) <= radius)
+        links[h["kode"]] = reach
+    return links
+
+
+def area_tables(hospitals, kabs, density, national_median, tiers_by_hospital):
+    """Kab-level (points, (en, id) reason) per area method and specialty, plus what the Regions screen shows.
+    Reasons carry a {kab} placeholder that the dashboard fills in, so the reason table stays small."""
+    # The three new methods count the 7 basic specialists at public hospitals from Kemenkes DREAMS where it
+    # covers them (base specialists, plus SIRS subspecialists): SIRS often reports none where DREAMS lists one.
+    best = {}
+    for h in hospitals:
+        c = Counter(h["counts"])
+        for code, d in (h.get("dreams") or {}).items():
+            c[code] = d[3] + h["sub"].get(code, 0)
+        best[h["kode"]] = c
+    by_kab = defaultdict(list)
+    for h in hospitals:
+        by_kab[h["kab_id"]].append(h)
+    pops = {kid: k["population"] for kid, k in kabs.items()}
+    totals = {kid: sum((best[h["kode"]] for h in by_kab[kid]), Counter()) for kid in kabs}
+    gov = {kid: sum((best[h["kode"]] for h in by_kab[kid] if ownership(h["pemilik"]) == "Government"), Counter()) for kid in kabs}
+    national_ratio = {s: sum(t[s] for t in totals.values()) / sum(pops.values()) * 1e5 for s in SPECIALTIES}
+    links = catchment_links(hospitals, kab_centers(hospitals), CATCHMENT_KM)
+    access = {s: two_step_catchment(pops, links, {h["kode"]: best[h["kode"]][s] for h in hospitals}) for s in SPECIALTIES}
+
+    def per100k(kid, n):
+        return n / pops[kid] * 1e5 if pops[kid] else None
+
+    out = {}
+    for kid, k in kabs.items():
+        name, hs = "{kab}", by_kab[kid]
+        needs = {h["kode"]: required_for(tiers_by_hospital.get(h["kode"], {})) for h in hs}
+        sao = per100k(kid, sum(totals[kid][s] for s in SAO))
+        rows = {m: [] for m in AREA_METHODS}
+        for s in SPECIALTIES:
+            dens = density.get(kid, {}).get(s)
+            rows["custom"].append(NO_POPULATION if dens is None else area_custom(s, k["totals"].get(s, 0), dens, national_median[s], name))
+            # National: public target hospitals are the DREAMS-tracked ones (7 basics) and KMK hospitals needing s.
+            kmk = [(h, svc, tier, either) for h in hs for svc, tier, either in needs[h["kode"]].get(s, [])]
+            either_only = s not in BASIC7 and kmk and all(e for *_, e in kmk)
+            group = EITHER if either_only else (s,)
+            has = lambda c: any(c[g] > 0 for g in group)  # noqa: E731
+            targets = {h["kode"]: h for h in hs if s in BASIC7 and h.get("dreams")}
+            targets.update({h["kode"]: h for h, *_ in kmk})
+            lacking = sum(1 for h in targets.values() if not has(best[h["kode"]]))
+            rows["national"].append(area_national(s, sum(totals[kid][g] for g in group), sum(gov[kid][g] for g in group),
+                                                  len(targets), lacking, [(svc, tier) for _, svc, tier, _ in kmk], name))
+            d = per100k(kid, totals[kid][s])
+            rows["global"].append(NO_POPULATION if d is None else area_global(s, totals[kid][s], d, sao, name))
+            rows["catchment"].append(NO_POPULATION if not pops[kid] else area_catchment(s, access[s][kid], national_ratio[s], name))
+        out[kid] = {"rows": rows, "best": [totals[kid][s] for s in SPECIALTIES],
+                    "access": [round(access[s][kid], 3) for s in SPECIALTIES]}
+    bench = {"custom": [round(national_median[s], 4) for s in SPECIALTIES],
+             "global": [GLOBAL_RATIO[s][0] if s in GLOBAL_RATIO else None for s in SPECIALTIES],
+             "global_group": [bool(GLOBAL_RATIO.get(s, (0, 0, False))[2]) for s in SPECIALTIES],
+             "catchment": [round(national_ratio[s], 4) for s in SPECIALTIES], "national": None}
+    return out, bench
+
+
 def load_spot_check():
     path = os.path.join(HERE, "data", "spot_check.csv")
     if not os.path.exists(path):
@@ -168,6 +258,7 @@ def main():
             kmk_by_hospital[m["sirs_kode"]] = {"tiers": m["tiers"], "page": m["halaman_pdf"], "nama": m["nama_rs"]}
 
     groups = peer_groups(hospitals)
+    areas, bench = area_tables(hospitals, kabs, density, national_median, tiers_by_hospital)
     reason_table, reason_table_id, reason_index = [], [], {}
 
     def rid(en, id_):
@@ -182,19 +273,20 @@ def main():
     for h in hospitals:
         g = groups[(h["kind"], band_index(h["beds"]))]
         tiers = tiers_by_hospital.get(h["kode"], {})
-        kab = kabs.get(h["kab_id"])
+        area = areas.get(h["kab_id"])
         scores = []
         for si, s in enumerate(SPECIALTIES):
-            r = score_pair(specialty=s, general=h["general"], tiers=tiers, counts=h["counts"],
-                           peer_median=g["medians"][s], kab_total=kab["totals"].get(s, 0) if kab else 0,
-                           density=density.get(h["kab_id"], {}).get(s) if kab else None,
-                           national_median=national_median[s], kab_name=kab["kab_kota"] if kab else h["kab_kota"],
+            r = score_pair(specialty=s, general=h["general"], tiers=tiers, counts=h["counts"], peer_median=g["medians"][s],
+                           area=area["rows"][DEFAULT_AREA][si] if area else NO_POPULATION,
                            band_label=g["band"], peer_label=h["kind"], peer_count=g["size"])
             label_counts[r["label"]] += 1
-            # Compact row: specialty, n, peer median, A, B, C, D, total, label, reason ids, KMK service
+            # Compact row: specialty, n, peer median, A, B, C, D, total, label, reason ids without the area
+            # reason, KMK service, relevant (area gate), boost. D/total/label are for DEFAULT_AREA; the
+            # dashboard recomputes them for the area method picked in Settings.
             scores.append([si, r["n"], g["medians"][s], r["A"], r["B"], r["C"], r["D"], r["total"],
-                           LABELS.index(r["label"]), [rid(en, id_) for en, id_ in zip(r["reasons"], r["reasons_id"])],
-                           f"{r['b_service'][0]}|{r['b_service'][1]}" if r["b_service"] else None])
+                           LABELS.index(r["label"]), [rid(en, id_) for en, id_ in r["base_reasons"]],
+                           f"{r['b_service'][0]}|{r['b_service'][1]}" if r["b_service"] else None,
+                           int(r["relevant"]), r["boost"]])
         out_h.append({
             "id": h["kode"], "name": h["nama"], "prov": h["provinsi"], "kab": h["kab_kota"], "kab_id": h["kab_id"],
             "owner": h["pemilik"], "own": ownership(h["pemilik"]), "kelas": h["kelas"], "type": h["jenis"],
@@ -231,8 +323,15 @@ def main():
                                       f"{sum(k['population'] for k in kabs.values()):,}"},
         "specialties": [{"code": s, "name": NAMES[s], "name_id": NAMES_ID.get(s, NAMES[s]), "floor": s in FLOOR} for s in SPECIALTIES],
         "national_median": [round(national_median[s], 4) for s in SPECIALTIES],
+        # Area check per method: kab area[method][si] = points (null = skipped), area_r = reason id (-1 = none).
+        "area": {"default": DEFAULT_AREA, "methods": list(AREA_METHODS), "km": CATCHMENT_KM, "bench": bench,
+                 "missing": rid(*NO_POPULATION[1])},
         "kabs": [{"id": k["id"], "prov": k["provinsi"], "kab": k["kab_kota"], "pop": k["population"],
-                  "hospitals": k["hospitals"], "totals": [k["totals"].get(s, 0) for s in SPECIALTIES]} for k in kabs.values()],
+                  "hospitals": k["hospitals"], "totals": [k["totals"].get(s, 0) for s in SPECIALTIES],
+                  "best": areas[k["id"]]["best"], "access": areas[k["id"]]["access"],
+                  "area": {m: [p for p, _ in areas[k["id"]]["rows"][m]] for m in AREA_METHODS},
+                  "area_r": {m: [rid(*r) if r else -1 for _, r in areas[k["id"]]["rows"][m]] for m in AREA_METHODS}}
+                 for k in kabs.values()],
         "reasons": reason_table,
         "reasons_id": reason_table_id,
         "hospitals": out_h,
