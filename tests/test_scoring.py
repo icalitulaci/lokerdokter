@@ -9,7 +9,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scoring import score_pair  # noqa: E402
+from scoring import (NO_POPULATION, area_catchment, area_custom, area_global, area_national,  # noqa: E402
+                     score_pair, two_step_catchment)
 
 
 class ReferenceCases(unittest.TestCase):
@@ -87,6 +88,68 @@ class ExtraRules(unittest.TestCase):
         r = score_pair(specialty="Sp.An", general=True, tiers={"kia": "Madya"}, counts={"Sp.An": 0},
                        peer_median=3, kab_total=0, density=0.0, national_median=1.0, kab_name="X")
         self.assertEqual(r["total"], 100)
+
+
+class AreaMethods(unittest.TestCase):
+    """The four settings for pillar D, each at kab level, then through the relevance gate."""
+
+    def test_custom_matches_original_rule(self):
+        self.assertEqual(area_custom("Sp.An", 0, 0.0, 1.0, "X")[0], 20)
+        self.assertEqual(area_custom("Sp.An", 3, 0.4, 1.0, "X")[0], 12)
+        self.assertEqual(area_custom("Sp.An", 3, 0.8, 1.0, "X")[0], 6)
+        self.assertEqual(area_custom("Sp.An", 3, 1.0, 1.0, "X"), (0, None))
+
+    def test_national_basic_specialist(self):
+        self.assertEqual(area_national("Sp.Rad", 0, 0, 1, 1, [], "X")[0], 20)
+        self.assertEqual(area_national("Sp.Rad", 2, 0, 1, 1, [], "X")[0], 12)  # only private hospitals have one
+        r = area_national("Sp.Rad", 4, 2, 3, 1, [], "X")
+        self.assertEqual(r[0], 6)
+        self.assertIn("1 of 3 public hospitals", r[1][0])
+        self.assertEqual(area_national("Sp.Rad", 4, 4, 3, 0, [], "X"), (0, None))
+
+    def test_national_kmk_specialist_only_where_targeted(self):
+        self.assertEqual(area_national("Sp.JP", 0, 0, 0, 0, [], "X"), (0, None))
+        r = area_national("Sp.JP", 0, 0, 1, 1, [("jantung", "Madya"), ("jantung", "Utama")], "X")
+        self.assertEqual(r[0], 20)
+        self.assertIn("Utama", r[1][0])
+
+    def test_global_single_and_group_ratio(self):
+        self.assertEqual(area_global("Sp.An", 5, 2.0, 30, "X")[0], 12)  # WFSA 5 per 100k
+        self.assertEqual(area_global("Sp.An", 5, 4.0, 30, "X")[0], 6)
+        self.assertEqual(area_global("Sp.An", 5, 5.0, 1, "X"), (0, None))
+        self.assertEqual(area_global("Sp.B", 5, 50.0, 9.0, "X")[0], 12)  # Lancet SAO 20 per 100k, group density
+        self.assertEqual(area_global("Sp.B", 5, 0.1, 25.0, "X"), (0, None))
+        self.assertEqual(area_global("Sp.B", 0, 0.0, 25.0, "X")[0], 20)
+
+    def test_global_without_published_ratio_is_skipped(self):
+        pts, reason = area_global("Sp.PD", 0, 0.0, 0.0, "X")
+        self.assertIsNone(pts)
+        self.assertIn("No internationally recommended ratio", reason[0])
+
+    def test_catchment_uses_national_average(self):
+        self.assertEqual(area_catchment("Sp.KN", 0.0, 0.05, "X")[0], 20)
+        self.assertEqual(area_catchment("Sp.KN", 0.02, 0.05, "X")[0], 12)
+        self.assertEqual(area_catchment("Sp.KN", 0.04, 0.05, "X")[0], 6)
+        self.assertEqual(area_catchment("Sp.KN", 0.05, 0.05, "X"), (0, None))
+        self.assertEqual(area_catchment("Sp.KN", 0.0, 0, "X"), (0, None))  # nobody in the country has one
+
+    def test_two_step_catchment(self):
+        # Hospital h1 (10 doctors) serves areas a and b; h2 (2 doctors) serves only b.
+        acc = two_step_catchment({"a": 100_000, "b": 300_000, "c": 50_000},
+                                 {"h1": ["a", "b"], "h2": ["b"]}, {"h1": 10, "h2": 2})
+        self.assertAlmostEqual(acc["a"], 2.5)
+        self.assertAlmostEqual(acc["b"], 2.5 + 2 / 3)
+        self.assertEqual(acc["c"], 0)
+        # Everyone's access, weighted by population, adds back up to every doctor.
+        self.assertAlmostEqual((acc["a"] * 1 + acc["b"] * 3 + acc["c"] * 0.5), 12)
+
+    def test_gate_and_missing_population(self):
+        args = dict(specialty="Sp.JP", general=True, tiers={}, counts={"Sp.JP": 0}, peer_median=0)
+        self.assertEqual(score_pair(**args, area=(20, ("x", "x")))["D"], 0)  # gate fails: no floor, KMK or peers
+        r = score_pair(**{**args, "peer_median": 1}, area=(20, ("x", "x")))
+        self.assertEqual((r["D"], r["total"]), (20, 35))
+        self.assertEqual(r["reasons"][-1], "x")
+        self.assertIsNone(score_pair(**args, area=NO_POPULATION)["D"])
 
 
 if __name__ == "__main__":

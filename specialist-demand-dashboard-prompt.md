@@ -128,6 +128,18 @@ Rules:
 - `density < M` → **6**
 - otherwise 0
 
+#### Pillar D options (Settings → How "few in this area" is measured)
+
+The rule above is the default ("Compared with other areas"). The dashboard can switch pillar D to one of three other methods. All four keep the relevance gate and the 20 / 12 / 6 points; only the yardstick changes. `scoring.py` computes all four per kab/kota, and the dashboard recomputes totals and labels for the one picked.
+
+| Method | 20 | 12 | 6 | Applies to |
+|---|---|---|---|---|
+| **National priority targets** | none in the kab/kota | only non-government hospitals have one | some public target hospitals in the kab/kota have none | the 7 basic specialists (Sp.PD, Sp.A, Sp.OG, Sp.B, Sp.An, Sp.Rad, Sp.PK: the Kemenkes minimum for every RSUD kab/kota; target hospitals = those tracked in Kemenkes DREAMS), and specialists in a pillar B required set of a KMK hospital in the kab/kota. Other specialties: 0 |
+| **Global recommended ratios** | none in the kab/kota | density < ½ × ratio | density < ratio | Sp.An: 5 per 100k (WFSA 2017). Sp.B, Sp.OG, Sp.OT, Sp.BS, Sp.U, Sp.BA, Sp.BP, Sp.BTKV: 20 per 100k for these plus Sp.An combined (Lancet Commission on Global Surgery 2015). Others have no published ratio: D = n/a, not guessed |
+| **Reachable within 50 km** | access = 0 | access < ½ × national average | access < national average | every specialty. Access = two-step floating catchment area (Luo & Wang 2003): each hospital's count ÷ population of every kab/kota whose hospital-center is within 50 km (plus its own), summed per kab/kota, per 100k. National average = total ÷ total population |
+
+The three new methods count the 7 basic specialists at public hospitals from DREAMS (base count + SIRS subspecialists) where DREAMS covers the hospital; the original method keeps raw SIRS counts.
+
 ### Boost and overrides
 
 - **New hospital:** if `operational_since` is within the last 24 months, add **+10** for relevant specialties (same gate as D). Cap the total at 100.

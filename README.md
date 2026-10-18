@@ -5,6 +5,7 @@ Every hospital gets a **need score from 0 to 100 for each specialty. Higher mean
 
 - **Hosted read-only copy:** https://icalitulaci.github.io/supplydemanddokterindo/
 - **Scoring rules:** [`specialist-demand-dashboard-prompt.md`](specialist-demand-dashboard-prompt.md), also explained in the app under "How the score works".
+- **Area check options:** under Settings you can choose how "few doctors in this area" is measured: compared with other areas (original), national priority targets (Kemenkes 7 basic specialists and KMK 1277/2024), global recommended ratios (WFSA, Lancet Commission), or doctors reachable within 50 km.
 
 > **Estimates, not facts.** All data is self-reported by hospitals and doctors in government systems and has not been checked on the ground.
 > About 1 in 5 "missing doctor" flags at public hospitals is contradicted by a second Kemenkes source, and private hospitals can't be cross-checked.

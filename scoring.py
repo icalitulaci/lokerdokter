@@ -129,22 +129,135 @@ def pillar_c(n, m, band_label=None, peer_label=None, peer_count=None):
                f"Rumah sakit serupa ({who_id}) biasanya punya {fmt(m)}. Rumah sakit ini punya {fmt(n)}.")
 
 
-def pillar_d(specialty, relevant, kab_total, density, national_median, kab_name):
-    if density is None:
-        return None, ("Area check skipped: no population data for this kab/kota.",
-                      "Pengecekan wilayah dilewati: tidak ada data penduduk untuk kab/kota ini.")
-    if not relevant:
-        return 0, None
+# ---------- Pillar D: area check (max 20) ----------
+# The dashboard lets the user pick how "few in this area" is measured. Each method returns a kab-level
+# (points, (en, id) reason) pair; pillar_d then applies the per-hospital relevance gate.
+AREA_METHODS = ("custom", "national", "global", "catchment")
+NO_POPULATION = (None, ("Area check skipped: no population data for this kab/kota.",
+                        "Pengecekan wilayah dilewati: tidak ada data penduduk untuk kab/kota ini."))
+
+# Kemenkes minimum for every RSUD kab/kota, tracked in its DREAMS vacancy dashboard.
+BASIC7 = ("Sp.PD", "Sp.A", "Sp.OG", "Sp.B", "Sp.An", "Sp.Rad", "Sp.PK")
+
+# Published specialist-to-population targets, per 100,000 people. Specialties not listed have no
+# internationally recommended ratio, so the "global" method skips them instead of guessing.
+WFSA = ("WFSA (World Federation of Societies of Anaesthesiologists)", "WFSA (Federasi Perhimpunan Anestesiologi Dunia)")
+LCOGS = ("the Lancet Commission on Global Surgery", "Lancet Commission on Global Surgery")
+# Surgical, anaesthetic and obstetric (SAO) physicians, counted together for the Lancet target.
+SAO = ("Sp.B", "Sp.OG", "Sp.An", "Sp.OT", "Sp.BS", "Sp.U", "Sp.BA", "Sp.BP", "Sp.BTKV")
+GLOBAL_RATIO = {"Sp.An": (5, WFSA, False)}  # code -> (per 100k, source, counts the whole SAO group)
+GLOBAL_RATIO.update({s: (20, LCOGS, True) for s in SAO if s not in GLOBAL_RATIO})
+
+CATCHMENT_KM = 50
+
+
+def area_custom(specialty, kab_total, density, median, kab_name):
+    """Original rule: the kab/kota compared with the median kab/kota (counting zeros)."""
     if kab_total == 0:
         return 20, (f"No {doctor(specialty)} at any hospital in {kab_name}.",
                     f"Tidak ada {doctor_id(specialty)} di rumah sakit mana pun di {kab_name}.")
-    if density < 0.5 * national_median:
+    if density < 0.5 * median:
         return 12, (f"{kab_name} has less than half the usual number of {DOCTOR_PL(specialty)} for its population.",
                     f"Jumlah {doctor_id(specialty)} di {kab_name} kurang dari separuh jumlah biasa untuk penduduknya.")
-    if density < national_median:
+    if density < median:
         return 6, (f"{kab_name} has fewer {DOCTOR_PL(specialty)} for its population than most areas.",
                    f"Jumlah {doctor_id(specialty)} di {kab_name} untuk penduduknya lebih sedikit dari kebanyakan daerah.")
     return 0, None
+
+
+def national_target(specialty, kmk_targets):
+    """Why a national programme wants this specialty in the kab/kota, as (en, id), or None.
+    kmk_targets: [(service, tier)] from KMK 1277/2024 network hospitals in the kab/kota that need it."""
+    if specialty in BASIC7:
+        return ("every RSUD kab/kota should have the 7 basic specialists (Kemenkes)",
+                "setiap RSUD kab/kota wajib punya 7 dokter spesialis dasar (Kemenkes)")
+    if kmk_targets:
+        service, tier = max(kmk_targets, key=lambda st: TIERS.index(st[1]))
+        return (f"KMK 1277/2024 wants {SERVICE_NAMES[service]} care at {tier} level here",
+                f"KMK 1277/2024 menargetkan layanan {SERVICE_NAMES_ID[service]} tingkat {tier} di sini")
+    return None
+
+
+def area_national(specialty, kab_total, gov_total, targets, lacking, kmk_targets, kab_name):
+    """National priority targets: the 7 basic specialists at every RSUD and the KMK 1277/2024 network.
+    targets / lacking: public target hospitals in the kab/kota, and how many of them have none."""
+    why = national_target(specialty, kmk_targets)
+    if why is None:
+        return 0, None
+    if kab_total == 0:
+        return 20, (f"No {doctor(specialty)} at any hospital in {kab_name}. National target: {why[0]}.",
+                    f"Tidak ada {doctor_id(specialty)} di rumah sakit mana pun di {kab_name}. Target nasional: {why[1]}.")
+    if gov_total == 0:
+        return 12, (f"In {kab_name}, only private or non-government hospitals have a {doctor(specialty)}. National target: {why[0]}.",
+                    f"Di {kab_name}, {doctor_id(specialty)} hanya ada di RS swasta atau non-pemerintah. Target nasional: {why[1]}.")
+    if lacking:
+        return 6, (f"{lacking} of {targets} public hospitals covered by the national target in {kab_name} have no {doctor(specialty)} ({why[0]}).",
+                   f"{lacking} dari {targets} RS pemerintah yang dicakup target nasional di {kab_name} tidak punya {doctor_id(specialty)} ({why[1]}).")
+    return 0, None
+
+
+def area_global(specialty, kab_total, density, group_density, kab_name):
+    """Published specialist-to-population targets (GLOBAL_RATIO). Unlisted specialties: (None, reason)."""
+    if specialty not in GLOBAL_RATIO:
+        return None, (f"No internationally recommended ratio exists for {DOCTOR_PL(specialty)}, so this setting skips the area check.",
+                      f"Tidak ada rasio rekomendasi internasional untuk {doctor_id(specialty)}, jadi pengaturan ini melewati pengecekan wilayah.")
+    target, (src, src_id), group = GLOBAL_RATIO[specialty]
+    if kab_total == 0:
+        return 20, (f"No {doctor(specialty)} at any hospital in {kab_name}.",
+                    f"Tidak ada {doctor_id(specialty)} di rumah sakit mana pun di {kab_name}.")
+    value = group_density if group else density
+    who = "surgeons, anesthesiologists and OB-GYNs together" if group else DOCTOR_PL(specialty)
+    who_id = "dokter bedah, anestesi, dan kandungan jika digabung" if group else doctor_id(specialty)
+    if value < 0.5 * target:
+        return 12, (f"{kab_name} has less than half of the {target} {who} per 100,000 people that {src} recommends.",
+                    f"{kab_name} punya kurang dari separuh {target} {who_id} per 100.000 penduduk yang direkomendasikan {src_id}.")
+    if value < target:
+        return 6, (f"{kab_name} has fewer than the {target} {who} per 100,000 people that {src} recommends.",
+                   f"{kab_name} punya kurang dari {target} {who_id} per 100.000 penduduk yang direkomendasikan {src_id}.")
+    return 0, None
+
+
+def area_catchment(specialty, access, national_ratio, kab_name):
+    """Doctors reachable within CATCHMENT_KM per 100,000 people (two-step floating catchment area),
+    compared with the national average. Unlike the median, the average is only 0 when nobody has one."""
+    if not national_ratio:
+        return 0, None
+    km = CATCHMENT_KM
+    if access == 0:
+        return 20, (f"No {doctor(specialty)} at any hospital within {km} km of {kab_name}.",
+                    f"Tidak ada {doctor_id(specialty)} di rumah sakit mana pun dalam radius {km} km dari {kab_name}.")
+    if access < 0.5 * national_ratio:
+        return 12, (f"Within {km} km of {kab_name}, there are less than half as many {DOCTOR_PL(specialty)} per person as the national average.",
+                    f"Dalam radius {km} km dari {kab_name}, jumlah {doctor_id(specialty)} per penduduk kurang dari separuh rata-rata nasional.")
+    if access < national_ratio:
+        return 6, (f"Within {km} km of {kab_name}, there are fewer {DOCTOR_PL(specialty)} per person than the national average.",
+                   f"Dalam radius {km} km dari {kab_name}, jumlah {doctor_id(specialty)} per penduduk di bawah rata-rata nasional.")
+    return 0, None
+
+
+def two_step_catchment(populations, links, supply):
+    """Two-step floating catchment area (Luo & Wang 2003).
+    populations: {area: people}; links: {site: [areas it serves]}; supply: {site: doctors}.
+    Step 1 shares each site's doctors over all the people it serves; step 2 adds up, per area,
+    the shares of every site within reach. Returns {area: doctors per 100,000 people within reach}."""
+    access = dict.fromkeys(populations, 0.0)
+    for site, doctors in supply.items():
+        reach = [a for a in links.get(site, ()) if populations.get(a)]
+        people = sum(populations[a] for a in reach)
+        if not doctors or not people:
+            continue
+        for a in reach:
+            access[a] += doctors / people
+    return {a: v * 1e5 for a, v in access.items()}
+
+
+def pillar_d(relevant, area):
+    """Relevance gate on a kab-level area result. Missing population is reported even when the gate fails."""
+    if area == NO_POPULATION:
+        return area
+    if not relevant:
+        return 0, None
+    return area
 
 
 def label_for(total, n, a, b):
@@ -154,20 +267,25 @@ def label_for(total, n, a, b):
     return label
 
 
-def score_pair(*, specialty, general, tiers, counts, peer_median, kab_total, density, national_median,
-               kab_name, band_label=None, peer_label=None, peer_count=None, new_hospital=None):
+def score_pair(*, specialty, general, tiers, counts, peer_median, kab_total=None, density=None, national_median=None,
+               kab_name=None, area=None, band_label=None, peer_label=None, peer_count=None, new_hospital=None):
+    """area: a precomputed kab-level (points, reason) from any AREA_METHODS; omitted = the original
+    rule from kab_total, density and national_median."""
     n = counts.get(specialty, 0)
     a, ra = pillar_a(specialty, general, n)
     b, rb, b_service = pillar_b(specialty, tiers, counts)
     c, rc = pillar_c(n, peer_median, band_label, peer_label, peer_count)
     relevant = (general and specialty in FLOOR) or specialty in required_for(tiers) or (peer_median or 0) >= 1
-    d, rd = pillar_d(specialty, relevant, kab_total, density, national_median, kab_name)
+    if area is None:
+        area = NO_POPULATION if density is None else area_custom(specialty, kab_total, density, national_median, kab_name)
+    d, rd = pillar_d(relevant, area)
     boost = 10 if new_hospital and relevant else 0
-    pairs = [r for r in (ra, rb, rc, rd) if r]
+    base = [r for r in (ra, rb, rc) if r]
     if boost:
-        pairs.append(("New hospital (open less than 2 years).", "Rumah sakit baru (buka kurang dari 2 tahun)."))
+        base.append(("New hospital (open less than 2 years).", "Rumah sakit baru (buka kurang dari 2 tahun)."))
+    pairs = base + ([rd] if rd else [])
     total = min(round(a + b + c + (d or 0) + boost, 2), 100)
     return {"specialty": specialty, "n": n, "A": a, "B": b, "C": c, "D": d, "boost": boost,
             "total": total, "label": label_for(total, n, a, b),
             "reasons": [en for en, _ in pairs], "reasons_id": [id_ for _, id_ in pairs],
-            "b_service": b_service, "relevant": relevant}
+            "base_reasons": base, "b_service": b_service, "relevant": relevant}
